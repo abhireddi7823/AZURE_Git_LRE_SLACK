@@ -1,7 +1,7 @@
 name: Test Azure AI Foundry Connection
 
 on:
-  workflow_dispatch:   # manual trigger only – run from GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
   test-azure-foundry:
@@ -9,22 +9,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # ── 1. Checkout repo ────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── 2. Set up Python ────────────────────────────────────────────────
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # ── 3. Install Azure OpenAI SDK ─────────────────────────────────────
       - name: Install dependencies
         run: pip install openai>=1.30.0
 
-      # ── 4. Test connection to both models ────────────────────────────────
+      - name: Debug – Check endpoint is set
+        env:
+          AZURE_FOUNDRY_ENDPOINT: ${{ secrets.AZURE_FOUNDRY_ENDPOINT }}
+        run: |
+          python - <<'EOF'
+          import os
+          endpoint = os.environ.get("AZURE_FOUNDRY_ENDPOINT", "NOT SET")
+          if endpoint == "NOT SET":
+              print("❌ AZURE_FOUNDRY_ENDPOINT secret is NOT SET")
+          else:
+              print(f"✅ Endpoint is set → {endpoint[:60]}...")
+          EOF
+
       - name: Test Azure AI Foundry connection
         env:
           AZURE_FOUNDRY_API_KEY:  ${{ secrets.AZURE_FOUNDRY_API_KEY }}
@@ -34,28 +42,68 @@ jobs:
           import os
           from openai import AzureOpenAI
 
-          client = AzureOpenAI(
-              azure_endpoint = os.environ["AZURE_FOUNDRY_ENDPOINT"],
-              api_key        = os.environ["AZURE_FOUNDRY_API_KEY"],
-              api_version    = "2024-05-01-preview",
-          )
+          api_key  = os.environ["AZURE_FOUNDRY_API_KEY"]
+          endpoint = os.environ["AZURE_FOUNDRY_ENDPOINT"].rstrip("/")
+
+          # Try multiple API versions
+          api_versions = [
+              "2025-01-01-preview",
+              "2024-10-21",
+              "2024-08-01-preview",
+              "2024-05-01-preview",
+          ]
+
+          # Try both endpoint formats
+          endpoint_formats = list(dict.fromkeys([
+              endpoint,
+              endpoint.replace("cognitiveservices.azure.com", "openai.azure.com"),
+              endpoint.replace("openai.azure.com", "cognitiveservices.azure.com"),
+          ]))
 
           models = ["gpt-4o", "gpt-4o-mini"]
+          success = False
 
-          for model in models:
+          for ep in endpoint_formats:
+              for version in api_versions:
+                  print(f"\n🔄 Trying: {ep}/ | version: {version}")
+                  try:
+                      client = AzureOpenAI(
+                          azure_endpoint = ep + "/",
+                          api_key        = api_key,
+                          api_version    = version,
+                      )
+                      response = client.chat.completions.create(
+                          model    = "gpt-4o",
+                          messages = [{"role": "user", "content": "Say: OK"}],
+                          max_tokens = 5,
+                      )
+                      reply = response.choices[0].message.content.strip()
+                      print(f"\n✅ SUCCESS!")
+                      print(f"   Working Endpoint : {ep}/")
+                      print(f"   Working Version  : {version}")
+                      print(f"   Response         : {reply}")
+                      print(f"\n📋 UPDATE YOUR SECRET:")
+                      print(f"   AZURE_FOUNDRY_ENDPOINT = {ep}/")
+                      success = True
+                      break
+                  except Exception as e:
+                      print(f"   ❌ {str(e)[:100]}")
+              if success:
+                  break
+
+          # Now test second model
+          if success:
               print(f"\n{'='*50}")
-              print(f"Testing model: {model}")
-              print(f"{'='*50}")
+              print("Testing gpt-4o-mini...")
               try:
                   response = client.chat.completions.create(
-                      model    = model,
-                      messages = [{"role": "user", "content": "Reply with: Connection successful!"}],
-                      max_tokens = 20,
+                      model    = "gpt-4o-mini",
+                      messages = [{"role": "user", "content": "Say: OK"}],
+                      max_tokens = 5,
                   )
-                  reply = response.choices[0].message.content.strip()
-                  print(f"✅  {model} → {reply}")
+                  print(f"✅ gpt-4o-mini → {response.choices[0].message.content.strip()}")
               except Exception as e:
-                  print(f"❌  {model} failed → {e}")
-
-          print("\n✅  Azure AI Foundry connection test complete.")
+                  print(f"❌ gpt-4o-mini failed: {e}")
+          else:
+              print("\n❌ All combinations failed. Check your API key and endpoint.")
           EOF
