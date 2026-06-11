@@ -1,0 +1,61 @@
+name: Test Azure AI Foundry Connection
+
+on:
+  workflow_dispatch:   # manual trigger only – run from GitHub Actions tab
+
+jobs:
+  test-azure-foundry:
+    name: Test Azure AI Foundry – GPT-4o & GPT-4o-mini
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ── 1. Checkout repo ────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Python ────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # ── 3. Install Azure OpenAI SDK ─────────────────────────────────────
+      - name: Install dependencies
+        run: pip install openai>=1.30.0
+
+      # ── 4. Test connection to both models ────────────────────────────────
+      - name: Test Azure AI Foundry connection
+        env:
+          AZURE_FOUNDRY_API_KEY:  ${{ secrets.AZURE_FOUNDRY_API_KEY }}
+          AZURE_FOUNDRY_ENDPOINT: ${{ secrets.AZURE_FOUNDRY_ENDPOINT }}
+        run: |
+          python - <<'EOF'
+          import os
+          from openai import AzureOpenAI
+
+          client = AzureOpenAI(
+              azure_endpoint = os.environ["AZURE_FOUNDRY_ENDPOINT"],
+              api_key        = os.environ["AZURE_FOUNDRY_API_KEY"],
+              api_version    = "2024-05-01-preview",
+          )
+
+          models = ["gpt-4o", "gpt-4o-mini"]
+
+          for model in models:
+              print(f"\n{'='*50}")
+              print(f"Testing model: {model}")
+              print(f"{'='*50}")
+              try:
+                  response = client.chat.completions.create(
+                      model    = model,
+                      messages = [{"role": "user", "content": "Reply with: Connection successful!"}],
+                      max_tokens = 20,
+                  )
+                  reply = response.choices[0].message.content.strip()
+                  print(f"✅  {model} → {reply}")
+              except Exception as e:
+                  print(f"❌  {model} failed → {e}")
+
+          print("\n✅  Azure AI Foundry connection test complete.")
+          EOF
