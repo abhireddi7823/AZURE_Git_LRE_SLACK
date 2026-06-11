@@ -18,39 +18,39 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install openai>=1.30.0 requests
+        run: pip install openai requests
 
       - name: Test Azure AI Foundry connection
         env:
-          AZURE_FOUNDRY_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY }}
+          AZURE_FOUNDRY_API_KEY:               ${{ secrets.AZURE_FOUNDRY_API_KEY }}
+          AZURE_FOUNDRY_DEPLOYMENT_PRIMARY:    ${{ secrets.AZURE_FOUNDRY_DEPLOYMENT_PRIMARY }}
+          AZURE_FOUNDRY_DEPLOYMENT_SECONDARY:  ${{ secrets.AZURE_FOUNDRY_DEPLOYMENT_SECONDARY }}
         run: |
           python - <<'EOF'
           import os
           import requests
 
-          api_key  = os.environ["AZURE_FOUNDRY_API_KEY"]
+          api_key   = os.environ["AZURE_FOUNDRY_API_KEY"]
+          primary   = os.environ.get("AZURE_FOUNDRY_DEPLOYMENT_PRIMARY",   "gpt-4o")
+          secondary = os.environ.get("AZURE_FOUNDRY_DEPLOYMENT_SECONDARY", "gpt-4o-mini")
 
-          # Correct endpoint from Azure AI Foundry project page
-          base_url = "https://lre-performance-project-resource.services.ai.azure.com/openai/v1"
+          base_url  = "https://lre-performance-project-resource.services.ai.azure.com/openai/v1"
+          url       = f"{base_url}/chat/completions"
 
-          models = ["gpt-4o", "gpt-4o-mini"]
+          headers = {
+              "api-key": api_key,
+              "Content-Type": "application/json"
+          }
 
-          for model in models:
+          for model in [primary, secondary]:
               print(f"\n{'='*50}")
               print(f"Testing model: {model}")
               print(f"{'='*50}")
-
-              url = f"{base_url}/chat/completions"
-              headers = {
-                  "api-key": api_key,
-                  "Content-Type": "application/json"
-              }
               body = {
                   "model": model,
                   "messages": [{"role": "user", "content": "Say: Connection successful!"}],
                   "max_tokens": 20
               }
-
               try:
                   r = requests.post(url, headers=headers, json=body, timeout=15)
                   if r.status_code == 200:
