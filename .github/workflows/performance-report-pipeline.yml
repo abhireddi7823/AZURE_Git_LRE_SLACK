@@ -2,106 +2,243 @@ name: LRE Performance Report – Azure Foundry Analysis
 
 on:
   push:
-    branches: [main, develop]
-    paths:
-      - 'reports/**'
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      report_path:
-        description: 'Path to the HTML performance report'
-        required: false
-        default: 'reports/latest/index.html'
-      trend_path:
-        description: 'Path to the trend report'
-        required: false
-        default: 'reports/trend/trend.html'
 
-# ──────────────────────────────────────────────
-# Required GitHub Secrets (already configured ✅)
-# ──────────────────────────────────────────────
-# AZURE_FOUNDRY_API_KEY
-# AZURE_FOUNDRY_ENDPOINT       = https://lre-performance-project-resource.services.ai.azure.com/openai/v1
-# AZURE_FOUNDRY_DEPLOYMENT_PRIMARY    = gpt-4o
-# AZURE_FOUNDRY_DEPLOYMENT_SECONDARY  = gpt-4o-mini
-# ──────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+# REQUIRED SECRETS (Settings → Secrets and variables → Actions)
+# ══════════════════════════════════════════════════════════════
+# LRE_KEY                              – Base64 Basic Auth for LRE
+# AZURE_FOUNDRY_API_KEY                – Azure AI Foundry key
+# AZURE_FOUNDRY_DEPLOYMENT_PRIMARY     – gpt-4o
+# AZURE_FOUNDRY_DEPLOYMENT_SECONDARY   – gpt-4o-mini
+# ══════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════
+# !!! EDIT THESE VALUES FOR YOUR TEST !!!
+# ══════════════════════════════════════════════════════════════
+env:
+  LRE_DOMAIN: FS
+  LRE_PROJECT: Payment_Initiation
+  LRE_TEST_ID: 3079            # ← CHANGE to your TestID
+  LRE_TEST_INSTANCE_ID: 2270   # ← CHANGE to your TestInstanceID
+  LRE_TREND_REPORT_ID: 1109    # ← CHANGE to your TrendReports ID
+  LRE_RUN_DURATION_MIN: 30     # ← test duration in minutes
+  LRE_WAIT_SECONDS: 400        # ← wait time before checking results
+# ══════════════════════════════════════════════════════════════
 
 jobs:
-  analyse:
-    name: Analyse Performance Reports with Azure AI Foundry
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  lre-execution-and-analysis:
+    runs-on: [ 'self-hosted', 'linux' ]
 
     steps:
-
-      # ── 1. Checkout ──────────────────────────────────────────────
+      # ══════════════════════════════════════════════════════
+      # STAGE 1 — Trigger LRE Test
+      # ══════════════════════════════════════════════════════
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      # ── 2. Set up Python ─────────────────────────────────────────
+      - name: Trigger test in LRE
+        run: |
+          curl -k -v -c cookies.txt \
+            -H "Authorization: Basic ${{ secrets.LRE_KEY }}" \
+            "https://lre.edb.com/loadtest/rest/authentication-point/authenticate" \
+          && curl -k -v -b cookies.txt \
+            -H "Content-Type: application/xml" \
+            "https://lre.edb.com/loadtest/rest/site-session" \
+          && curl -k -v -b cookies.txt \
+            -H "Accept: application/xml" -H "Content-Type: application/xml" \
+            -d "<Run xmlns=\"http://www.hp.com/PC/REST/API\"><PostRunAction>Collate And Analyze</PostRunAction><TestID>${{ env.LRE_TEST_ID }}</TestID><TestInstanceID>${{ env.LRE_TEST_INSTANCE_ID }}</TestInstanceID><TimeslotDuration><Hours>0</Hours><Minutes>${{ env.LRE_RUN_DURATION_MIN }}</Minutes></TimeslotDuration><VudsMode>false</VudsMode></Run>" \
+            "https://lre.edb.com/loadtest/rest/domains/${{ env.LRE_DOMAIN }}/projects/${{ env.LRE_PROJECT }}/Runs" \
+            -o package.xml
+
+      - name: Upload trigger logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lre-trigger-logs
+          path: |
+            package.xml
+            cookies.txt
+
+      - name: Extract Run ID
+        id: get-xml-id
+        uses: mavrosxristoforos/get-xml-info@2.0
+        with:
+          xml-file: 'package.xml'
+          xpath: '//*[local-name()="Run"]/*[local-name()="ID"]'
+
+      - name: Display extracted Run ID
+        run: echo "Run ID: ${{ steps.get-xml-id.outputs.info }}"
+
+      # ══════════════════════════════════════════════════════
+      # STAGE 2 — Wait for completion & check SLA
+      # ══════════════════════════════════════════════════════
+      - name: Wait until test completes
+        run: sleep ${{ env.LRE_WAIT_SECONDS }}s
+
+      - name: Get SLA status of Run ID
+        run: |
+          curl -H "Accept: application/xml" -H "Connection: keep-alive" \
+            -H "Authorization: Basic ${{ secrets.LRE_KEY }}" -c cookies.txt \
+            -H "Content-Type: application/xml" \
+            "https://lre.edb.com/LoadTest/rest/authentication-point/authenticate" \
+          && curl -H "Accept: application/xml" -H "Connection: keep-alive" \
+            -H "Authorization: Basic ${{ secrets.LRE_KEY }}" -b cookies.txt \
+            -H "Content-Type: application/xml" \
+            "https://lre.edb.com/loadtest/rest/domains/${{ env.LRE_DOMAIN }}/projects/${{ env.LRE_PROJECT }}/Runs/${{ steps.get-xml-id.outputs.info }}" \
+            -o SLA.xml
+
+      - name: Extract SLA Status
+        id: get-sla
+        uses: mavrosxristoforos/get-xml-info@2.0
+        with:
+          xml-file: 'SLA.xml'
+          xpath: '//*[local-name()="Run"]/*[local-name()="RunSLAStatus"]'
+
+      - name: Display SLA status
+        run: echo "SLA Status: ${{ steps.get-sla.outputs.info }}"
+
+      - name: Sleep before fetching results
+        run: sleep 10s
+
+      # ══════════════════════════════════════════════════════
+      # STAGE 3 — Get Results & Download Reports
+      # ══════════════════════════════════════════════════════
+      - name: Get Run Results list
+        run: |
+          curl -H "Accept: application/xml" -H "Connection: keep-alive" \
+            -H "Authorization: Basic ${{ secrets.LRE_KEY }}" -c cookies.txt \
+            -H "Content-Type: application/xml" \
+            "https://lre.edb.com/LoadTest/rest/authentication-point/authenticate" \
+          && curl -H "Accept: application/xml" -H "Connection: keep-alive" \
+            -H "Authorization: Basic ${{ secrets.LRE_KEY }}" -b cookies.txt \
+            -H "Content-Type: application/xml" \
+            "https://lre.edb.com/loadtest/rest/domains/${{ env.LRE_DOMAIN }}/projects/${{ env.LRE_PROJECT }}/Runs/${{ steps.get-xml-id.outputs.info }}/Results" \
+            -o Results.xml
+
+      - name: Get HTML Report Result ID
+        id: get-xml-html-resultid
+        uses: mavrosxristoforos/get-xml-info@2.0
+        with:
+          xml-file: 'Results.xml'
+          xpath: '//*[local-name()="RunResult"][*[local-name()="Type" and text()="HTML REPORT"]]/*[local-name()="ID"]'
+
+      - name: Display HTML Report Result ID
+        run: echo "HTML Report Result ID: ${{ steps.get-xml-html-resultid.outputs.info }}"
+
+      - name: Download HTML Report (zip)
+        run: |
+          curl -H "Accept: application/xml" -H "Connection: keep-alive" \
+            -H "Authorization: Basic ${{ secrets.LRE_KEY }}" -c cookies.txt \
+            -H "Content-Type: application/xml" \
+            "https://lre.edb.com/LoadTest/rest/authentication-point/authenticate" \
+          && curl -H "Accept: */*" -H "Accept-Encoding: gzip, deflate, br" \
+            -H "Connection: keep-alive" -H "Content-Type: application/zip" \
+            -H "Authorization: Basic ${{ secrets.LRE_KEY }}" -b cookies.txt \
+            "https://lre.edb.com/loadtest/rest/domains/${{ env.LRE_DOMAIN }}/projects/${{ env.LRE_PROJECT }}/Runs/${{ steps.get-xml-id.outputs.info }}/Results/${{ steps.get-xml-html-resultid.outputs.info }}/data" \
+            -o HTML_Report.zip
+
+      - name: Download Trend Report (PDF)
+        run: |
+          curl -H "Accept: application/xml" -H "Connection: keep-alive" \
+            -H "Authorization: Basic ${{ secrets.LRE_KEY }}" -c cookies.txt \
+            -H "Content-Type: application/xml" \
+            "https://lre.edb.com/LoadTest/rest/authentication-point/authenticate" \
+          && curl -H "Accept: */*" -H "Accept-Encoding: gzip, deflate, br" \
+            -H "Connection: keep-alive" -H "Content-Type: application/zip" \
+            -H "Authorization: Basic ${{ secrets.LRE_KEY }}" -b cookies.txt \
+            "https://lre.edb.com/loadtest/rest/domains/${{ env.LRE_DOMAIN }}/projects/${{ env.LRE_PROJECT }}/TrendReports/${{ env.LRE_TREND_REPORT_ID }}/data" \
+            -o Trend_Report.pdf
+
+      - name: Upload raw reports as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lre-raw-reports
+          path: |
+            HTML_Report.zip
+            Trend_Report.pdf
+
+      # ══════════════════════════════════════════════════════
+      # STAGE 4 — Prepare reports for AI analysis
+      # ══════════════════════════════════════════════════════
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # ── 3. Install dependencies ──────────────────────────────────
-      - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip
-          pip install requests beautifulsoup4 lxml
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 lxml pdfplumber
 
-      # ── 4. Locate latest reports ─────────────────────────────────
-      - name: Locate performance reports
-        id: find_reports
+      - name: Unzip HTML report
         run: |
-          MANUAL_HTML="${{ github.event.inputs.report_path }}"
-          MANUAL_TREND="${{ github.event.inputs.trend_path }}"
-
-          if [ -n "$MANUAL_HTML" ] && [ -f "$MANUAL_HTML" ]; then
-            HTML_REPORT="$MANUAL_HTML"
-          else
-            HTML_REPORT=$(find reports -name "*.html" 2>/dev/null | grep -v trend | sort -r | head -1 || echo "")
+          mkdir -p reports/latest reports/trend
+          unzip -o HTML_Report.zip -d reports/latest/
+          # Find the main HTML file (often index.html or report.html)
+          MAIN_HTML=$(find reports/latest -iname "*.html" | head -1)
+          echo "Main HTML report: $MAIN_HTML"
+          if [ "$MAIN_HTML" != "reports/latest/index.html" ]; then
+            cp "$MAIN_HTML" reports/latest/index.html
           fi
 
-          if [ -n "$MANUAL_TREND" ] && [ -f "$MANUAL_TREND" ]; then
-            TREND_REPORT="$MANUAL_TREND"
-          else
-            TREND_REPORT=$(find reports -name "*trend*.html" 2>/dev/null | sort -r | head -1 || echo "")
-          fi
+      - name: Extract text from Trend PDF
+        run: |
+          python - <<'EOF'
+          import pdfplumber
+          from pathlib import Path
 
-          echo "html_report=${HTML_REPORT}"   >> "$GITHUB_OUTPUT"
-          echo "trend_report=${TREND_REPORT}" >> "$GITHUB_OUTPUT"
-          echo "::notice::HTML  report → ${HTML_REPORT:-NOT FOUND}"
-          echo "::notice::Trend report → ${TREND_REPORT:-NOT FOUND}"
+          out_dir = Path("reports/trend")
+          out_dir.mkdir(parents=True, exist_ok=True)
 
-      # ── 5. Analyse with Azure AI Foundry ─────────────────────────
+          text_chunks = []
+          with pdfplumber.open("Trend_Report.pdf") as pdf:
+              for page in pdf.pages:
+                  text_chunks.append(page.extract_text() or "")
+
+          full_text = "\n\n".join(text_chunks)
+
+          # Wrap as simple HTML so analyse_reports.py's HTML parser can read it
+          html = f"<html><body><h1>Trend Report</h1><pre>{full_text}</pre></body></html>"
+          (out_dir / "trend.html").write_text(html, encoding="utf-8")
+          print(f"Extracted {len(full_text)} characters from Trend_Report.pdf")
+          EOF
+
+      # ══════════════════════════════════════════════════════
+      # STAGE 5 — AI Analysis via Azure AI Foundry
+      # ══════════════════════════════════════════════════════
       - name: Analyse reports with Azure AI Foundry
-        id: ai_analysis
         env:
           AZURE_FOUNDRY_API_KEY:     ${{ secrets.AZURE_FOUNDRY_API_KEY }}
-          AZURE_FOUNDRY_ENDPOINT:    ${{ secrets.AZURE_FOUNDRY_ENDPOINT }}
           PRIMARY_DEPLOYMENT:        ${{ secrets.AZURE_FOUNDRY_DEPLOYMENT_PRIMARY }}
           SECONDARY_DEPLOYMENT:      ${{ secrets.AZURE_FOUNDRY_DEPLOYMENT_SECONDARY }}
-          HTML_REPORT_PATH:          ${{ steps.find_reports.outputs.html_report }}
-          TREND_REPORT_PATH:         ${{ steps.find_reports.outputs.trend_report }}
+          HTML_REPORT_PATH:          reports/latest/index.html
+          TREND_REPORT_PATH:         reports/trend/trend.html
+          SLA_STATUS:                ${{ steps.get-sla.outputs.info }}
+          LRE_RUN_ID:                ${{ steps.get-xml-id.outputs.info }}
         run: python scripts/analyse_reports.py
 
-      # ── 6. Print the analysis directly in the logs ──────────────
-      - name: Show analysis result
+      # ══════════════════════════════════════════════════════
+      # STAGE 6 — Show analysis result in logs
+      # ══════════════════════════════════════════════════════
+      - name: Show AI analysis result
         run: |
           echo "=================================================="
+          echo "📊 SLA STATUS: ${{ steps.get-sla.outputs.info }}"
           echo "📊 PERFORMANCE ANALYSIS RESULT"
           echo "=================================================="
           cat analysis_output/summary.md
           echo "=================================================="
 
-      # ── 7. Upload artefacts ───────────────────────────────────────
-      - name: Upload analysis artefacts
+      # ══════════════════════════════════════════════════════
+      # STAGE 7 — Upload final analysis
+      # ══════════════════════════════════════════════════════
+      - name: Upload AI analysis artefacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lre-analysis-${{ github.run_number }}
+          name: lre-ai-analysis-${{ github.run_number }}
           path: |
             analysis_output/
           retention-days: 30
