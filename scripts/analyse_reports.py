@@ -30,10 +30,10 @@ API_KEY  = os.environ["AZURE_FOUNDRY_API_KEY"]
 
 # IMPORTANT: Same endpoint format verified working in
 # azure-foundry-connection-test.yml — NO api-version query param.
-ENDPOINT = os.environ.get(
-    "AZURE_FOUNDRY_ENDPOINT",
-    "https://lre-performance-project-resource.services.ai.azure.com/openai/v1"
-).rstrip("/")
+# Hardcoded — exact match to azure-foundry-connection-test.yml which succeeded.
+# (The AZURE_FOUNDRY_ENDPOINT secret value differs and causes 400 errors, so we
+#  ignore it here and use the verified working endpoint directly.)
+ENDPOINT = "https://lre-performance-project-resource.services.ai.azure.com/openai/v1"
 
 PRIMARY    = os.environ.get("PRIMARY_DEPLOYMENT",   "gpt-4o")
 SECONDARY  = os.environ.get("SECONDARY_DEPLOYMENT", "gpt-4o-mini")
