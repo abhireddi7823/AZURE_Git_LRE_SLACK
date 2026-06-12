@@ -41,6 +41,9 @@ SECONDARY  = os.environ.get("SECONDARY_DEPLOYMENT", "gpt-4o-mini")
 HTML_PATH  = os.environ.get("HTML_REPORT_PATH",  "")
 TREND_PATH = os.environ.get("TREND_REPORT_PATH", "")
 
+SLA_STATUS = os.environ.get("SLA_STATUS", "")
+LRE_RUN_ID = os.environ.get("LRE_RUN_ID", "")
+
 REPO       = os.environ.get("GITHUB_REPOSITORY",  "unknown/repo")
 RUN_ID     = os.environ.get("GITHUB_RUN_ID",      "0")
 SERVER_URL = os.environ.get("GITHUB_SERVER_URL",  "https://github.com")
@@ -168,6 +171,8 @@ def main():
         "repo":         REPO,
         "html_report":  HTML_PATH,
         "trend_report": TREND_PATH,
+        "sla_status":   SLA_STATUS,
+        "lre_run_id":   LRE_RUN_ID,
         "markdown":     markdown,
     }
     (OUTPUT_DIR / "summary.json").write_text(
