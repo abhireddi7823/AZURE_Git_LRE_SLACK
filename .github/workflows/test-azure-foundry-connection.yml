@@ -18,13 +18,13 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install openai requests
+        run: pip install requests
 
       - name: Test Azure AI Foundry connection
         env:
-          AZURE_FOUNDRY_API_KEY:               ${{ secrets.AZURE_FOUNDRY_API_KEY }}
-          AZURE_FOUNDRY_DEPLOYMENT_PRIMARY:    ${{ secrets.AZURE_FOUNDRY_DEPLOYMENT_PRIMARY }}
-          AZURE_FOUNDRY_DEPLOYMENT_SECONDARY:  ${{ secrets.AZURE_FOUNDRY_DEPLOYMENT_SECONDARY }}
+          AZURE_FOUNDRY_API_KEY:              ${{ secrets.AZURE_FOUNDRY_API_KEY }}
+          AZURE_FOUNDRY_DEPLOYMENT_PRIMARY:   ${{ secrets.AZURE_FOUNDRY_DEPLOYMENT_PRIMARY }}
+          AZURE_FOUNDRY_DEPLOYMENT_SECONDARY: ${{ secrets.AZURE_FOUNDRY_DEPLOYMENT_SECONDARY }}
         run: |
           python - <<'EOF'
           import os
@@ -42,6 +42,7 @@ jobs:
               "Content-Type": "application/json"
           }
 
+          all_ok = True
           for model in [primary, secondary]:
               print(f"\n{'='*50}")
               print(f"Testing model: {model}")
@@ -58,8 +59,15 @@ jobs:
                       print(f"✅  {model} → {reply}")
                   else:
                       print(f"❌  {model} → {r.status_code}: {r.json()}")
+                      all_ok = False
               except Exception as e:
                   print(f"❌  {model} → {str(e)}")
+                  all_ok = False
 
-          print("\n✅  Azure AI Foundry connection test complete.")
+          print("\n" + "="*50)
+          if all_ok:
+              print("✅  Azure AI Foundry connection: BOTH MODELS WORKING")
+          else:
+              print("⚠️  Azure AI Foundry connection: SOME MODELS FAILED")
+          print("="*50)
           EOF
