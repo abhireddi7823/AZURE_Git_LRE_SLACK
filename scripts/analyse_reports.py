@@ -45,7 +45,8 @@ SERVER_URL  = os.environ.get("GITHUB_SERVER_URL",  "https://github.com")
 OUTPUT_DIR  = Path("analysis_output")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-CHAT_URL = f"{ENDPOINT}/chat/completions"
+API_VERSION = os.environ.get("AZURE_FOUNDRY_API_VERSION", "2024-05-01-preview")
+CHAT_URL = f"{ENDPOINT}/chat/completions?api-version={API_VERSION}"
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
