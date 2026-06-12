@@ -4,9 +4,9 @@ analyse_reports.py
 ──────────────────
 • Parses HTML performance reports (JMeter, Gatling, k6, LoadRunner)
 • Calls Azure AI Foundry (primary → secondary fallback) using the
-  verified endpoint format:
-    https://<project>.services.ai.azure.com/openai/v1/chat/completions
-  with header: api-key: <key>
+  VERIFIED endpoint format (same as azure-foundry-connection-test.yml):
+    https://lre-performance-project-resource.services.ai.azure.com/openai/v1/chat/completions
+  Header: api-key: <key>   (NO api-version query param needed)
 • Produces structured analysis:
     - Executive Summary
     - Response Time Table
@@ -26,27 +26,30 @@ import requests
 from bs4 import BeautifulSoup
 
 # ── Config ──────────────────────────────────────────────────────────────────
-API_KEY     = os.environ["AZURE_FOUNDRY_API_KEY"]
-ENDPOINT    = os.environ.get(
+API_KEY  = os.environ["AZURE_FOUNDRY_API_KEY"]
+
+# IMPORTANT: Same endpoint format verified working in
+# azure-foundry-connection-test.yml — NO api-version query param.
+ENDPOINT = os.environ.get(
     "AZURE_FOUNDRY_ENDPOINT",
     "https://lre-performance-project-resource.services.ai.azure.com/openai/v1"
 ).rstrip("/")
 
-PRIMARY     = os.environ.get("PRIMARY_DEPLOYMENT",   "gpt-4o")
-SECONDARY   = os.environ.get("SECONDARY_DEPLOYMENT", "gpt-4o-mini")
+PRIMARY    = os.environ.get("PRIMARY_DEPLOYMENT",   "gpt-4o")
+SECONDARY  = os.environ.get("SECONDARY_DEPLOYMENT", "gpt-4o-mini")
 
-HTML_PATH   = os.environ.get("HTML_REPORT_PATH",  "")
-TREND_PATH  = os.environ.get("TREND_REPORT_PATH", "")
+HTML_PATH  = os.environ.get("HTML_REPORT_PATH",  "")
+TREND_PATH = os.environ.get("TREND_REPORT_PATH", "")
 
-REPO        = os.environ.get("GITHUB_REPOSITORY",  "unknown/repo")
-RUN_ID      = os.environ.get("GITHUB_RUN_ID",      "0")
-SERVER_URL  = os.environ.get("GITHUB_SERVER_URL",  "https://github.com")
+REPO       = os.environ.get("GITHUB_REPOSITORY",  "unknown/repo")
+RUN_ID     = os.environ.get("GITHUB_RUN_ID",      "0")
+SERVER_URL = os.environ.get("GITHUB_SERVER_URL",  "https://github.com")
 
-OUTPUT_DIR  = Path("analysis_output")
+OUTPUT_DIR = Path("analysis_output")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-API_VERSION = os.environ.get("AZURE_FOUNDRY_API_VERSION", "2024-05-01-preview")
-CHAT_URL = f"{ENDPOINT}/chat/completions?api-version={API_VERSION}"
+# Verified working URL — no api-version param
+CHAT_URL = f"{ENDPOINT}/chat/completions"
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -132,6 +135,9 @@ def analyse(html_text: str, trend_text: str) -> dict:
 
 def main():
     print(f"Endpoint     : {ENDPOINT}")
+    print(f"Chat URL     : {CHAT_URL}")
+    print(f"Primary      : {PRIMARY}")
+    print(f"Secondary    : {SECONDARY}")
     print(f"HTML report  : {HTML_PATH or '(none)'}")
     print(f"Trend report : {TREND_PATH or '(none)'}")
 
@@ -152,9 +158,9 @@ def main():
     # Persist markdown
     md_path = OUTPUT_DIR / "summary.md"
     md_path.write_text(markdown, encoding="utf-8")
-    print(f"✅  Analysis written → {md_path}")
+    print(f"\n✅  Analysis written → {md_path}")
 
-    # Persist JSON for Slack publisher
+    # Persist JSON for Slack publisher (used later)
     run_url = f"{SERVER_URL}/{REPO}/actions/runs/{RUN_ID}"
     summary_obj = {
         "model_used":   model_used,
