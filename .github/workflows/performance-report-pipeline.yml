@@ -1,14 +1,108 @@
-name: LRE Performance Report – Azure Foundry + Slack
+name: LRE Performance Report – Azure Foundry Analysis
 
 on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'reports/**'
   workflow_dispatch:
     inputs:
-      disabled:
-        description: 'This workflow is disabled'
+      report_path:
+        description: 'Path to the HTML performance report'
+        required: false
+        default: 'reports/latest/index.html'
+      trend_path:
+        description: 'Path to the trend report'
+        required: false
+        default: 'reports/trend/trend.html'
+
+# ──────────────────────────────────────────────
+# Required GitHub Secrets (already configured ✅)
+# ──────────────────────────────────────────────
+# AZURE_FOUNDRY_API_KEY
+# AZURE_FOUNDRY_ENDPOINT       = https://lre-performance-project-resource.services.ai.azure.com/openai/v1
+# AZURE_FOUNDRY_DEPLOYMENT_PRIMARY    = gpt-4o
+# AZURE_FOUNDRY_DEPLOYMENT_SECONDARY  = gpt-4o-mini
+# ──────────────────────────────────────────────
 
 jobs:
-  placeholder:
+  analyse:
+    name: Analyse Performance Reports with Azure AI Foundry
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
-      - name: Disabled
-        run: echo "This workflow is currently disabled."
+
+      # ── 1. Checkout ──────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── 2. Set up Python ─────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      # ── 3. Install dependencies ──────────────────────────────────
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install requests beautifulsoup4 lxml
+
+      # ── 4. Locate latest reports ─────────────────────────────────
+      - name: Locate performance reports
+        id: find_reports
+        run: |
+          MANUAL_HTML="${{ github.event.inputs.report_path }}"
+          MANUAL_TREND="${{ github.event.inputs.trend_path }}"
+
+          if [ -n "$MANUAL_HTML" ] && [ -f "$MANUAL_HTML" ]; then
+            HTML_REPORT="$MANUAL_HTML"
+          else
+            HTML_REPORT=$(find reports -name "*.html" 2>/dev/null | grep -v trend | sort -r | head -1 || echo "")
+          fi
+
+          if [ -n "$MANUAL_TREND" ] && [ -f "$MANUAL_TREND" ]; then
+            TREND_REPORT="$MANUAL_TREND"
+          else
+            TREND_REPORT=$(find reports -name "*trend*.html" 2>/dev/null | sort -r | head -1 || echo "")
+          fi
+
+          echo "html_report=${HTML_REPORT}"   >> "$GITHUB_OUTPUT"
+          echo "trend_report=${TREND_REPORT}" >> "$GITHUB_OUTPUT"
+          echo "::notice::HTML  report → ${HTML_REPORT:-NOT FOUND}"
+          echo "::notice::Trend report → ${TREND_REPORT:-NOT FOUND}"
+
+      # ── 5. Analyse with Azure AI Foundry ─────────────────────────
+      - name: Analyse reports with Azure AI Foundry
+        id: ai_analysis
+        env:
+          AZURE_FOUNDRY_API_KEY:     ${{ secrets.AZURE_FOUNDRY_API_KEY }}
+          AZURE_FOUNDRY_ENDPOINT:    ${{ secrets.AZURE_FOUNDRY_ENDPOINT }}
+          PRIMARY_DEPLOYMENT:        ${{ secrets.AZURE_FOUNDRY_DEPLOYMENT_PRIMARY }}
+          SECONDARY_DEPLOYMENT:      ${{ secrets.AZURE_FOUNDRY_DEPLOYMENT_SECONDARY }}
+          HTML_REPORT_PATH:          ${{ steps.find_reports.outputs.html_report }}
+          TREND_REPORT_PATH:         ${{ steps.find_reports.outputs.trend_report }}
+        run: python scripts/analyse_reports.py
+
+      # ── 6. Print the analysis directly in the logs ──────────────
+      - name: Show analysis result
+        run: |
+          echo "=================================================="
+          echo "📊 PERFORMANCE ANALYSIS RESULT"
+          echo "=================================================="
+          cat analysis_output/summary.md
+          echo "=================================================="
+
+      # ── 7. Upload artefacts ───────────────────────────────────────
+      - name: Upload analysis artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lre-analysis-${{ github.run_number }}
+          path: |
+            analysis_output/
+          retention-days: 30
