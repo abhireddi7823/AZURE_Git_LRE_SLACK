@@ -1,1 +1,43 @@
 
+<!DOCTYPE html>
+<html>
+<head><title>Performance Test Report - Checkout Flow</title></head>
+<body>
+<h1>Apache JMeter Load Test Report</h1>
+<h2>Test Summary</h2>
+<p>Test Name: Checkout API Load Test</p>
+<p>Duration: 30 minutes</p>
+<p>Virtual Users: 200 concurrent</p>
+<p>Total Samples: 48000</p>
+<p>Total Errors: 312</p>
+<p>Overall Error Rate: 0.65%</p>
+<p>Throughput: 26.7 requests/sec</p>
+
+<h2>Transaction Summary</h2>
+<table border="1">
+<tr>
+  <th>Label</th><th>Samples</th><th>Average (ms)</th><th>Median (ms)</th>
+  <th>90th pct (ms)</th><th>95th pct (ms)</th><th>99th pct (ms)</th>
+  <th>Min (ms)</th><th>Max (ms)</th><th>Error %</th>
+</tr>
+<tr><td>Login API</td><td>8000</td><td>320</td><td>290</td><td>450</td><td>520</td><td>780</td><td>120</td><td>1100</td><td>0.10%</td></tr>
+<tr><td>Search Products</td><td>12000</td><td>410</td><td>380</td><td>610</td><td>720</td><td>980</td><td>150</td><td>1500</td><td>0.05%</td></tr>
+<tr><td>Add to Cart</td><td>9000</td><td>280</td><td>250</td><td>400</td><td>480</td><td>650</td><td>110</td><td>900</td><td>0.02%</td></tr>
+<tr><td>Apply Coupon</td><td>4000</td><td>1850</td><td>1700</td><td>2900</td><td>3400</td><td>4800</td><td>800</td><td>6200</td><td>2.30%</td></tr>
+<tr><td>Checkout Submit</td><td>7000</td><td>2400</td><td>2100</td><td>3800</td><td>4500</td><td>6200</td><td>1200</td><td>9800</td><td>3.10%</td></tr>
+<tr><td>Payment Gateway</td><td>5000</td><td>3200</td><td>2900</td><td>5100</td><td>6000</td><td>8500</td><td>1500</td><td>12000</td><td>4.80%</td></tr>
+<tr><td>Order Confirmation</td><td>3000</td><td>450</td><td>400</td><td>650</td><td>750</td><td>1000</td><td>180</td><td>1400</td><td>0.00%</td></tr>
+</table>
+
+<h2>Errors</h2>
+<table border="1">
+<tr><th>Error Type</th><th>Count</th><th>% of Total</th></tr>
+<tr><td>504 Gateway Timeout (Payment Gateway)</td><td>180</td><td>0.38%</td></tr>
+<tr><td>500 Internal Server Error (Checkout Submit)</td><td>95</td><td>0.20%</td></tr>
+<tr><td>Connection Reset (Apply Coupon)</td><td>37</td><td>0.08%</td></tr>
+</table>
+
+<h2>Notes</h2>
+<p>Payment Gateway and Checkout Submit transactions show degraded performance under sustained load above 150 concurrent users. Apply Coupon transaction has intermittent connection resets, suspected to be a downstream third-party coupon validation service issue.</p>
+</body>
+</html>
