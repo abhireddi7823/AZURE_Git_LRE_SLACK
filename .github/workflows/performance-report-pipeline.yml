@@ -1,5 +1,5 @@
 name: LRE Performance Report – Azure Foundry Analysis
-
+   
 on:
   push:
     branches:
