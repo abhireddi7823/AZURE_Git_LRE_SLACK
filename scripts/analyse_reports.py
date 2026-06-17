@@ -4,7 +4,7 @@ analyse_reports.py
 ──────────────────
 • Parses HTML performance reports (JMeter, Gatling, k6, LoadRunner)
 • Calls Azure AI Foundry (primary → secondary fallback) using the
-  VERIFIED endpoint format (same as azure-foundry-connection-test.yml):
+  VERIFIED endpoint format:
     https://lre-performance-project-resource.services.ai.azure.com/openai/v1/chat/completions
   Header: api-key: <key>   (NO api-version query param needed)
 • Produces structured analysis:
@@ -28,11 +28,7 @@ from bs4 import BeautifulSoup
 # ── Config ──────────────────────────────────────────────────────────────────
 API_KEY  = os.environ["AZURE_FOUNDRY_API_KEY"]
 
-# IMPORTANT: Same endpoint format verified working in
-# azure-foundry-connection-test.yml — NO api-version query param.
-# Hardcoded — exact match to azure-foundry-connection-test.yml which succeeded.
-# (The AZURE_FOUNDRY_ENDPOINT secret value differs and causes 400 errors, so we
-#  ignore it here and use the verified working endpoint directly.)
+# Hardcoded — verified working endpoint (do not change unless re-tested)
 ENDPOINT = "https://lre-performance-project-resource.services.ai.azure.com/openai/v1"
 
 PRIMARY    = os.environ.get("PRIMARY_DEPLOYMENT",   "gpt-4o")
@@ -40,9 +36,6 @@ SECONDARY  = os.environ.get("SECONDARY_DEPLOYMENT", "gpt-4o-mini")
 
 HTML_PATH  = os.environ.get("HTML_REPORT_PATH",  "")
 TREND_PATH = os.environ.get("TREND_REPORT_PATH", "")
-
-SLA_STATUS = os.environ.get("SLA_STATUS", "")
-LRE_RUN_ID = os.environ.get("LRE_RUN_ID", "")
 
 REPO       = os.environ.get("GITHUB_REPOSITORY",  "unknown/repo")
 RUN_ID     = os.environ.get("GITHUB_RUN_ID",      "0")
@@ -163,7 +156,7 @@ def main():
     md_path.write_text(markdown, encoding="utf-8")
     print(f"\n✅  Analysis written → {md_path}")
 
-    # Persist JSON for Slack publisher (used later)
+    # Persist JSON (used later by Slack publisher)
     run_url = f"{SERVER_URL}/{REPO}/actions/runs/{RUN_ID}"
     summary_obj = {
         "model_used":   model_used,
@@ -171,8 +164,6 @@ def main():
         "repo":         REPO,
         "html_report":  HTML_PATH,
         "trend_report": TREND_PATH,
-        "sla_status":   SLA_STATUS,
-        "lre_run_id":   LRE_RUN_ID,
         "markdown":     markdown,
     }
     (OUTPUT_DIR / "summary.json").write_text(
